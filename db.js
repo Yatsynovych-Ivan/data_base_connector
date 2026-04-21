@@ -1,0 +1,96 @@
+import pg from 'pg';
+import dotenv from 'dotenv';
+
+
+dotenv.config();
+
+const { Pool } = pg;
+
+if (!process.env.DB_URL) {
+  console.error('❌ Помилка: DB_URL не знайдено в .env файлі!');
+  process.exit(1);
+}
+
+const pool = new Pool({
+  connectionString: process.env.DB_URL,
+  ssl: {
+    rejectUnauthorized: false 
+  }
+});
+
+const initializeDatabase = async () => {
+  const createTableQuery = `
+    CREATE TABLE IF NOT EXISTS my_tasks (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER DEFAULT 1,
+      is_done BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  try {
+    await pool.query(createTableQuery);
+    console.log('✅ База даних підключена, таблиця готова.');
+  } catch (error) {
+    console.error(' Помилка ініціалізації БД:', error.message);
+    process.exit(1);
+  }
+};
+
+async function addTask(title, desc, priority) {
+  const query = `INSERT INTO my_tasks (title, description, priority) VALUES ($1, $2, $3) RETURNING *`;
+  const res = await pool.query(query, [title, desc, priority]);
+  console.log(' Додано:', res.rows[0]);
+}
+
+async function listTasks() {
+  const res = await pool.query('SELECT * FROM my_tasks ORDER BY priority DESC');
+  console.table(res.rows);
+}
+
+async function deleteTask(id) {
+  const res = await pool.query('DELETE FROM my_tasks WHERE id = $1 RETURNING *', [id]);
+  if (res.rows.length) {
+    console.log(' Видалено:', res.rows[0]);
+  } else {
+    console.log(' Запис з таким ID не знайдено.');
+  }
+}
+
+(async () => {
+  await initializeDatabase();
+  
+  const [,, command, ...args] = process.argv;
+
+  try {
+    switch (command) {
+      case 'add':
+        if (!args[0]) {
+          console.log('Помилка: вкажіть назву завдання.');
+        } else {
+          await addTask(args[0], args[1] || '', args[2] || 1);
+        }
+        break;
+      case 'list':
+        await listTasks();
+        break;
+      case 'delete':
+        await deleteTask(parseInt(args[0]));
+        break;
+      default:
+        console.log(`
+  Доступні команди:
+  node db.js add "Назва" "Опис" 5
+  node db.js list
+  node db.js delete ID
+        `);
+    }
+  } catch (err) {
+    console.error('Помилка :', err.message);
+  } finally {
+    await pool.end();
+    console.log('закрито');
+  }
+})();
