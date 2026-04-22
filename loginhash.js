@@ -1,10 +1,11 @@
 import pg from 'pg';
 import dotenv from 'dotenv';
-
+import bcrypt from 'bcrypt'; // 1. Імпортуємо bcrypt
 
 dotenv.config();
 
 const { Pool } = pg;
+const saltRounds = 10; // Складність хешування
 
 if (!process.env.DB_URL) {
   console.error('❌ Помилка: DB_URL не знайдено в .env файлі!');
@@ -23,7 +24,7 @@ const initializeDatabase = async () => {
     CREATE TABLE IF NOT EXISTS my_tasks (
       id SERIAL PRIMARY KEY,
       title TEXT NOT NULL,
-      description TEXT,
+      description TEXT, -- Тут ми будемо зберігати хеш
       priority INTEGER DEFAULT 1,
       is_done BOOLEAN DEFAULT false,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -34,15 +35,24 @@ const initializeDatabase = async () => {
     await pool.query(createTableQuery);
     console.log('✅ База даних підключена, таблиця готова.');
   } catch (error) {
-    console.error(' Помилка ініціалізації БД:', error.message);
+    console.error('❌ Помилка ініціалізації БД:', error.message);
     process.exit(1);
   }
 };
 
 async function addTask(title, desc, priority) {
-  const query = `INSERT INTO my_tasks (title, description, priority) VALUES ($1, $2, $3) RETURNING *`;
-  const res = await pool.query(query, [title, desc, priority]);
-  console.log(' Додано:', res.rows[0]);
+  try {
+    // 2. Хешуємо опис перед збереженням
+    console.log('⏳ Хешування опису...');
+    const hashedDesc = await bcrypt.hash(desc, saltRounds);
+    
+    const query = `INSERT INTO my_tasks (title, description, priority) VALUES ($1, $2, $3) RETURNING *`;
+    const res = await pool.query(query, [title, hashedDesc, priority]);
+    
+    console.log('✅ Додано запис із хешованим описом:', res.rows[0]);
+  } catch (err) {
+    console.error('❌ Помилка при додаванні:', err.message);
+  }
 }
 
 async function listTasks() {
@@ -53,9 +63,9 @@ async function listTasks() {
 async function deleteTask(id) {
   const res = await pool.query('DELETE FROM my_tasks WHERE id = $1 RETURNING *', [id]);
   if (res.rows.length) {
-    console.log(' Видалено:', res.rows[0]);
+    console.log('🗑️ Видалено:', res.rows[0]);
   } else {
-    console.log(' Запис з таким ID не знайдено.');
+    console.log('ℹ️ Запис з таким ID не знайдено.');
   }
 }
 
@@ -70,7 +80,8 @@ async function deleteTask(id) {
         if (!args[0]) {
           console.log('Помилка: вкажіть назву завдання.');
         } else {
-          await addTask(args[0], args[1] || '', args[2] || 1);
+          // Передаємо назву, опис (який захешується) та пріоритет
+          await addTask(args[0], args[1] || 'default_secret', args[2] || 1);
         }
         break;
       case 'list':
@@ -81,16 +92,16 @@ async function deleteTask(id) {
         break;
       default:
         console.log(`
-  Доступні команди:
-  node db.js add "Назва" "Опис" 5
+🚀 Доступні команди:
+  node db.js add "Назва" "СекретнийОпис" 5
   node db.js list
   node db.js delete ID
         `);
     }
   } catch (err) {
-    console.error('Помилка :', err.message);
+    console.error('❌ Помилка:', err.message);
   } finally {
     await pool.end();
-    console.log('закрито');
+    console.log('🔌 З’єднання закрито');
   }
 })();
