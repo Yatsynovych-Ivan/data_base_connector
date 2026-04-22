@@ -1,1 +1,1 @@
-you need to install bcrypt type in terminal - npm i bcrypt 
+you need to type in terminal-- npm install and npm i pg dotenv
